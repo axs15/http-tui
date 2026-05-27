@@ -2,20 +2,18 @@ use std::time::Duration;
 
 use color_eyre::eyre::Result;
 use color_eyre::eyre::{WrapErr, bail};
-use ratatui::widgets::{Row, Table};
-use reqwest::StatusCode;
-use serde_json::Value;
-use tokio;
-
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures::{FutureExt, StreamExt};
 use ratatui::layout::{Constraint, Layout};
+use ratatui::widgets::{Row, Table};
 use ratatui::{
     DefaultTerminal, Frame,
     style::Stylize,
     text::Line,
     widgets::{Block, Paragraph},
 };
+use reqwest::StatusCode;
+use serde_json::Value;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -85,24 +83,31 @@ impl App {
         let [main_area, status_area] = Layout::vertical([
             Constraint::Min(0),    // main content: takes all remaining space
             Constraint::Length(1), // status bar: exactly 1 line tall
-        ]).areas(frame.area());
+        ])
+        .areas(frame.area());
         let header = Row::new(vec!["ID", "Name", "Email"]).bold();
-        let rows: Vec<Row> = self.items.iter().map(|item| {
-            Row::new(vec![
-                item["id"].to_string(),
-                item["name"].as_str().unwrap_or("").to_string(),
-                item["email"].as_str().unwrap_or("").to_string(),
-            ])
-        }).collect();
-        let table = Table::new(rows, [
-            Constraint::Length(4),
-            Constraint::Min(20),
-            Constraint::Min(30),
-        ]).header(header).block(Block::bordered().title("Users"));
-        frame.render_widget(
-            table,
-            main_area,
-        );
+        let rows: Vec<Row> = self
+            .items
+            .iter()
+            .map(|item| {
+                Row::new(vec![
+                    item["id"].to_string(),
+                    item["name"].as_str().unwrap_or("").to_string(),
+                    item["email"].as_str().unwrap_or("").to_string(),
+                ])
+            })
+            .collect();
+        let table = Table::new(
+            rows,
+            [
+                Constraint::Length(4),
+                Constraint::Min(20),
+                Constraint::Min(30),
+            ],
+        )
+        .header(header)
+        .block(Block::bordered().title("Users"));
+        frame.render_widget(table, main_area);
         let status_line = if !self.last_error.is_empty() {
             Line::from(self.last_error.as_str()).red()
         } else {
@@ -118,14 +123,13 @@ impl App {
     ) -> color_eyre::Result<()> {
         tokio::select! {
             event = self.event_stream.next().fuse() => {
-                 match event {
-                     Some(Ok(evt)) => match evt {
-                         Event::Key(key) if key.kind == KeyEventKind::Press => self.on_key_event(key),
-                         Event::Mouse(_) => {}
-                         Event::Resize(_, _) => {}
-                         _ => {}
-                     },
-                     _ => {}
+                if let Some(Ok(evt)) = event {
+                    match evt {
+                        Event::Key(key) if key.kind == KeyEventKind::Press => self.on_key_event(key),
+                        Event::Mouse(_) => {}
+                        Event::Resize(_, _) => {}
+                        _ => {}
+                    }
                 }
             }
             Some(data) = rx.recv() => {
@@ -151,7 +155,9 @@ impl App {
             (_, KeyCode::Esc | KeyCode::Char('q'))
             | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             // Add other key handlers here.
-            (modifier, key) => { self.status = format!("Got keypress {} {}", modifier, key); }
+            (modifier, key) => {
+                self.status = format!("Got keypress {} {}", modifier, key);
+            }
         }
     }
 

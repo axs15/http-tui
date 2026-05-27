@@ -1,0 +1,107 @@
+# ─── WORKFLOW NAME ────────────────────────────────────────────────────────────
+# Shown in the GitHub Actions tab. One repo can have many workflow files;
+# each file is an independent pipeline. Unlike GitLab's single .gitlab-ci.yml,
+# you split concerns across multiple files (ci.yml, release.yml, etc.).
+name: CI
+
+# ─── TRIGGERS (on:) ───────────────────────────────────────────────────────────
+# GitLab equivalent: `only:` / `rules:` / `workflow: rules:`
+# This fires on every push to main AND on any PR that targets main.
+# PRs from forks also trigger this — GitHub handles the permissions safely.
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+# ─── ENVIRONMENT VARIABLES ────────────────────────────────────────────────────
+# GitLab equivalent: top-level `variables:`
+# These are available to all jobs in this workflow.
+# CARGO_TERM_COLOR forces coloured output even in non-interactive CI logs.
+env:
+  CARGO_TERM_COLOR: always
+
+# ─── JOBS ─────────────────────────────────────────────────────────────────────
+# GitLab equivalent: `jobs:` entries within a stage.
+# Key difference: GitHub Actions jobs run IN PARALLEL by default.
+# To sequence them, use `needs: [job-name]` (same idea as GitLab's `needs:`).
+# Each job gets a FRESH runner (VM) — no shared filesystem between jobs.
+jobs:
+
+  # ── JOB 1: lint ─────────────────────────────────────────────────────────────
+  # Checks code style (rustfmt) and catches common mistakes (clippy).
+  # Runs in parallel with the `build` job below.
+  lint:
+    name: Lint
+    # `runs-on` = the runner OS. GitHub provides hosted runners:
+    #   ubuntu-latest, windows-latest, macos-latest
+    # GitLab equivalent: `image:` (but it's the VM OS, not a Docker image).
+    # To use a Docker container instead, add a `container:` key below runs-on.
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── actions/checkout ──────────────────────────────────────────────────
+      # `uses:` runs a pre-built action from the GitHub Actions marketplace.
+      # GitLab has no direct equivalent — the runner clones the repo for you.
+      # Here you must do it explicitly. Always pin to a major version tag.
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # ── Rust toolchain ────────────────────────────────────────────────────
+      # Sets up the Rust toolchain. `components:` installs extra tools.
+      # `stable` tracks the current stable release; you can also pin a version
+      # like "1.87.0" for reproducibility.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # ── Caching ───────────────────────────────────────────────────────────
+      # GitLab equivalent: `cache:` block.
+      # Rust's build cache (registry downloads + compiled deps) is large.
+      # Swatinem/rust-cache handles cache keys automatically based on
+      # Cargo.lock, so it invalidates correctly when deps change.
+      # Without this, each run downloads and compiles all deps from scratch
+      # (~2–3 min for this project; cached drops to ~20s).
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # ── Steps with `run:` ─────────────────────────────────────────────────
+      # `run:` is a shell command. GitLab equivalent: `script:` lines.
+      # Each `run:` is a separate step (own log section, own exit code).
+      - name: Check formatting
+        run: cargo fmt --check
+        # --check exits non-zero if any file would be reformatted.
+        # The job fails here if code isn't gofmt'd — no noise downstream.
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy -- -D warnings
+        # -D warnings = treat warnings as errors.
+        # Remove this flag if you want a more lenient CI while iterating.
+
+  # ── JOB 2: build ────────────────────────────────────────────────────────────
+  # Compiles the project and runs tests. Runs in parallel with `lint`.
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --locked
+        # --locked: fail if Cargo.lock is out of date with Cargo.toml.
+        # Prevents "works on my machine" drift — good CI hygiene.
+
+      - name: Test
+        run: cargo test --locked
+        # No tests yet, but this scaffolding means new tests run automatically.
+        # `cargo test` also compiles all test code, catching compile errors
+        # in #[cfg(test)] blocks even before tests are written.
